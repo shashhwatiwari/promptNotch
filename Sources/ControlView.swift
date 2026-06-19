@@ -3,13 +3,15 @@ import UniformTypeIdentifiers
 
 struct ControlView: View {
     @ObservedObject var model: TeleprompterModel
+    @ObservedObject var draft: PromptDraft
     @State private var isImporterPresented = false
+    @FocusState private var isScriptEditorFocused: Bool
 
     var body: some View {
         NavigationSplitView {
             sidebar
         } detail: {
-            editor
+            detail
         }
         .fileImporter(
             isPresented: $isImporterPresented,
@@ -17,8 +19,23 @@ struct ControlView: View {
             allowsMultipleSelection: false
         ) { result in
             if case .success(let urls) = result, let url = urls.first {
-                try? model.importScript(from: url)
+                try? draft.importScript(from: url)
             }
+        }
+        .onChange(of: draft.mode) { _ in
+            draft.applyModePreset()
+        }
+        .onChange(of: draft.visibleLines) { _ in
+            syncAutoHeight()
+        }
+        .onChange(of: draft.fontSize) { _ in
+            syncAutoHeight()
+        }
+        .onChange(of: draft.lineSpacing) { _ in
+            syncAutoHeight()
+        }
+        .onChange(of: draft.autoSizeEnabled) { _ in
+            syncAutoHeight()
         }
     }
 
@@ -27,12 +44,12 @@ struct ControlView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Notch Teleprompter")
                     .font(.title2.weight(.semibold))
-                Text("\(model.wordCount) words • \(durationText)")
+                Text("\(draft.wordCount) words • \(durationText)")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
 
-            Picker("Mode", selection: $model.mode) {
+            Picker("Mode", selection: $draft.mode) {
                 ForEach(PromptMode.allCases) { mode in
                     Text(mode.rawValue).tag(mode)
                 }
@@ -41,17 +58,16 @@ struct ControlView: View {
 
             HStack(spacing: 10) {
                 Button {
-                    model.toggleRunning()
+                    applyDraft()
                 } label: {
-                    Label(model.isRunning ? "Pause" : "Start", systemImage: model.isRunning ? "pause.fill" : "play.fill")
+                    Label("Apply", systemImage: "checkmark.circle.fill")
                         .frame(maxWidth: .infinity)
                 }
-                .keyboardShortcut(.space, modifiers: [])
 
                 Button {
-                    model.reset()
+                    draft.reload(from: model)
                 } label: {
-                    Label("Reset", systemImage: "arrow.counterclockwise")
+                    Label("Revert", systemImage: "arrow.uturn.backward")
                 }
             }
             .buttonStyle(.borderedProminent)
@@ -60,14 +76,16 @@ struct ControlView: View {
 
             GroupBox("Prompt") {
                 VStack(alignment: .leading, spacing: 14) {
-                    Toggle("Show overlay", isOn: $model.isPromptVisible)
-                    Toggle("Click-through", isOn: $model.isClickThrough)
-                    Picker("Position", selection: $model.position) {
+                    Toggle("Click-through after apply", isOn: $draft.isClickThrough)
+                    Toggle("Pause on hover", isOn: $draft.pauseOnHover)
+                    Toggle("Hover controls", isOn: $draft.showHoverControls)
+                    Toggle("Progress bar", isOn: $draft.showProgressBar)
+                    Picker("Position", selection: $draft.position) {
                         ForEach(PromptPosition.allCases) { position in
                             Text(position.rawValue).tag(position)
                         }
                     }
-                    Picker("Theme", selection: $model.theme) {
+                    Picker("Theme", selection: $draft.theme) {
                         ForEach(PromptTheme.allCases) { theme in
                             Text(theme.rawValue).tag(theme)
                         }
@@ -78,7 +96,7 @@ struct ControlView: View {
 
             GroupBox("Pacing") {
                 VStack(alignment: .leading, spacing: 12) {
-                    valueSlider("Words per minute", value: $model.wpm, range: 80...220, step: 5, suffix: "WPM")
+                    valueSlider("Words per minute", value: $draft.wpm, range: 80...220, step: 5, suffix: "WPM")
                     ProgressView(value: model.progress)
                 }
                 .padding(.vertical, 4)
@@ -86,12 +104,17 @@ struct ControlView: View {
 
             GroupBox("Appearance") {
                 VStack(alignment: .leading, spacing: 12) {
-                    valueSlider("Width", value: $model.promptWidth, range: 360...980, step: 10, suffix: "px")
-                    valueSlider("Height", value: $model.promptHeight, range: 72...360, step: 6, suffix: "px")
-                    valueSlider("Font size", value: $model.fontSize, range: 14...44, step: 1, suffix: "pt")
-                    valueSlider("Line spacing", value: $model.lineSpacing, range: 0...20, step: 1, suffix: "px")
-                    valueSlider("Opacity", value: $model.opacity, range: 0.25...1, step: 0.05, suffix: "")
-                    valueSlider("Weight", value: $model.textWeight, range: 0...1, step: 0.5, suffix: model.textWeightName)
+                    Toggle("Auto-size height", isOn: $draft.autoSizeEnabled)
+                    valueSlider("Visible lines", value: $draft.visibleLines, range: 1...7, step: 1, suffix: "lines")
+                    valueSlider("Width", value: $draft.promptWidth, range: 320...980, step: 10, suffix: "px")
+                    valueSlider("Height", value: $draft.promptHeight, range: 72...420, step: 6, suffix: "px")
+                        .disabled(draft.autoSizeEnabled)
+                    valueSlider("Font size", value: $draft.fontSize, range: 14...44, step: 1, suffix: "pt")
+                    valueSlider("Line spacing", value: $draft.lineSpacing, range: 0...20, step: 1, suffix: "px")
+                    valueSlider("Opacity", value: $draft.opacity, range: 0.25...1, step: 0.05, suffix: "")
+                    valueSlider("Weight", value: $draft.textWeight, range: 0...1, step: 0.5, suffix: draft.textWeightName)
+                    Toggle("Top fade", isOn: $draft.enableTopFade)
+                    Toggle("Bottom fade", isOn: $draft.enableBottomFade)
                 }
                 .padding(.vertical, 4)
             }
@@ -102,8 +125,39 @@ struct ControlView: View {
         .navigationSplitViewColumnWidth(min: 320, ideal: 360)
     }
 
-    private var editor: some View {
+    private var detail: some View {
         VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Preview")
+                        .font(.title3.weight(.semibold))
+
+                    Spacer()
+
+                    Button {
+                        applyDraft()
+                    } label: {
+                        Label("Apply", systemImage: "checkmark")
+                    }
+
+                    Button {
+                        applyDraft()
+                        NSApp.keyWindow?.performClose(nil)
+                    } label: {
+                        Label("Save", systemImage: "square.and.arrow.down")
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+
+                DraftPromptPreviewView(draft: draft)
+                    .frame(height: 190)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(Color(nsColor: .separatorColor))
+                    )
+            }
+
             HStack {
                 Text("Script")
                     .font(.title3.weight(.semibold))
@@ -117,30 +171,49 @@ struct ControlView: View {
                 }
 
                 Button {
-                    model.script = ""
-                    model.reset()
+                    draft.script = ""
                 } label: {
                     Label("Clear", systemImage: "trash")
                 }
             }
 
-            TextEditor(text: $model.script)
-                .font(.system(size: 17, weight: .regular, design: .default))
-                .lineSpacing(5)
-                .scrollContentBackground(.hidden)
-                .background(Color(nsColor: .textBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color(nsColor: .separatorColor))
-                )
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color(nsColor: .textBackgroundColor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(
+                                isScriptEditorFocused ? Color.accentColor : Color(nsColor: .separatorColor),
+                                lineWidth: isScriptEditorFocused ? 2 : 1
+                            )
+                    )
+                    .shadow(color: .black.opacity(0.03), radius: 1, y: 1)
+
+                if draft.script.isEmpty {
+                    Text("Type your script here...\n\nUse [brackets] for stage directions like [pause], [smile], or [gesture].")
+                        .font(.system(size: 15))
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 13)
+                        .padding(.vertical, 12)
+                        .allowsHitTesting(false)
+                }
+
+                TextEditor(text: $draft.script)
+                    .font(.system(size: 17, weight: .regular, design: .default))
+                    .lineSpacing(5)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.clear)
+                    .focused($isScriptEditorFocused)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 8)
+            }
         }
         .padding(22)
     }
 
     private var durationText: String {
-        let seconds = Int(model.estimatedDuration.rounded())
-        return "\(seconds / 60)m \(seconds % 60)s at \(Int(model.wpm)) WPM"
+        let seconds = Int(draft.estimatedDuration.rounded())
+        return "\(seconds / 60)m \(seconds % 60)s at \(Int(draft.wpm)) WPM"
     }
 
     private func valueSlider(
@@ -168,11 +241,22 @@ struct ControlView: View {
             return String(format: "%.2f", value)
         }
 
-        if suffix == model.textWeightName {
+        if suffix == draft.textWeightName {
             return suffix
         }
 
         return "\(Int(value.rounded())) \(suffix)"
+    }
+
+    private func applyDraft() {
+        syncAutoHeight()
+        model.apply(from: draft)
+    }
+
+    private func syncAutoHeight() {
+        if draft.autoSizeEnabled {
+            draft.promptHeight = draft.calculatedHeight()
+        }
     }
 }
 

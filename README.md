@@ -9,13 +9,20 @@ This first version focuses on the core workflow:
 - Write or paste scripts in the main editor.
 - Import `.txt` and `.md` files.
 - Show or hide a floating always-on-top prompt overlay.
+- Control the app from a discreet menu-bar extra.
 - Start, pause, and reset automatic script scrolling.
+- Pause automatically while hovering over the prompt.
+- Use hover controls for close, minimize, play/pause, scroll-back, and Settings.
+- Reopen the same Settings window repeatedly without creating duplicates.
+- Edit settings against a built-in preview, then apply changes to the live overlay.
 - Control reading pace with words per minute.
-- Resize the prompt area by width and height.
+- Auto-size the prompt by visible line count, or resize it manually.
 - Move the prompt to camera, top-center, left, right, or a custom dragged position.
 - Adjust font size, line spacing, opacity, theme, and text weight.
+- Use a notch-attached glass surface, top/bottom fades, dimmed bracket cues, and a slim progress rail.
 - Enable click-through mode for meetings and recordings.
-- Switch between Meeting, Presentation, and Recording presets.
+- Switch between Minimal, Standard, and Presenter modes.
+- Keep prompt preferences saved between launches.
 
 ## Run
 
@@ -28,4 +35,3 @@ swift run DynamicNotch
 ```sh
 swift build
 ```
-
