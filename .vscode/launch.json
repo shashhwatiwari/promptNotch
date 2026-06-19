@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:DynamicNotch}",
+            "name": "Debug DynamicNotch",
+            "target": "DynamicNotch",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug DynamicNotch"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:DynamicNotch}",
+            "name": "Release DynamicNotch",
+            "target": "DynamicNotch",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release DynamicNotch"
+        }
+    ]
+}
